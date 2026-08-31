@@ -59,6 +59,15 @@ class CustomProviderConfig:
 
 
 @dataclass
+class MCPServerConfigEntry:
+    name: str
+    command: str | None = None
+    args: list[str] = field(default_factory=list)
+    env: dict[str, str] | None = None
+    url: str | None = None
+
+
+@dataclass
 class Config:
     # The canonical way to name a model everywhere in OpenTerminal (CLI flags,
     # config, session files) is a single "provider/model" string — e.g.
@@ -71,6 +80,7 @@ class Config:
     provider_api_keys: dict[str, str] = field(default_factory=dict)
     provider_base_urls: dict[str, str] = field(default_factory=dict)
     custom_providers: list[CustomProviderConfig] = field(default_factory=list)
+    mcp_servers: list[MCPServerConfigEntry] = field(default_factory=list)
     auto_approve_tools: list[str] = field(default_factory=list)  # e.g. ["read_file", "glob"]
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -107,6 +117,17 @@ class Config:
             for pid, v in merged.get("custom_providers", {}).items()
         ]
 
+        mcp_servers = [
+            MCPServerConfigEntry(
+                name=name,
+                command=v.get("command"),
+                args=v.get("args", []),
+                env=v.get("env"),
+                url=v.get("url"),
+            )
+            for name, v in merged.get("mcp_servers", {}).items()
+        ]
+
         # Legacy `default_provider`/`default_model` pair still wins over the
         # built-in default if `model` itself wasn't set explicitly.
         model = merged.get("model")
@@ -119,6 +140,7 @@ class Config:
             provider_api_keys=keys,
             provider_base_urls=base_urls,
             custom_providers=custom,
+            mcp_servers=mcp_servers,
             auto_approve_tools=merged.get("auto_approve_tools", []),
             raw=merged,
         )

@@ -45,6 +45,7 @@ from openterminal.agent.loop import (
 from openterminal.agent.permissions import PermissionManager
 from openterminal.agent.session import Session
 from openterminal.config import Config, split_model_id
+from openterminal.mcp_client import MCPManager
 from openterminal.providers.registry import list_providers
 from openterminal.tools.registry import default_tools
 from openterminal.types import Message
@@ -59,10 +60,37 @@ def main(
     model: str = typer.Option(None, "--model", "-m", help="provider/model, e.g. anthropic/claude-sonnet-4-5"),
     cont: bool = typer.Option(False, "--continue", "-c", help="Resume the most recent session for this project."),
     resume: str = typer.Option(None, "--resume", help="Resume a specific session id."),
+    tui: bool = typer.Option(False, "--tui", help="Full-screen Textual interface instead of the plain REPL (beta)."),
 ) -> None:
     if ctx.invoked_subcommand is not None:
         return
-    asyncio.run(_interactive(model=model, cont=cont, resume=resume))
+    if tui:
+        _launch_tui(model=model, cont=cont, resume=resume)
+    else:
+        asyncio.run(_interactive(model=model, cont=cont, resume=resume))
+
+
+def _launch_tui(model: str | None, cont: bool, resume: str | None) -> None:
+    from openterminal.ui.tui import run_tui
+
+    config = Config.load()
+    cwd = Path.cwd()
+
+    session: Session | None = None
+    if resume:
+        try:
+            session = Session.load(resume)
+        except FileNotFoundError:
+            typer.echo(f"No session '{resume}'.")
+            raise typer.Exit(1) from None
+    elif cont:
+        session = Session.latest_for_project(cwd)
+
+    model_id = model or (session.meta.model if session else config.model)
+    if session is None:
+        session = Session.create(cwd, model_id)
+
+    run_tui(config=config, model_id=model_id, session=session, cwd=cwd)
 
 
 @app.command()
@@ -116,6 +144,38 @@ def sessions() -> None:
         console.print(f"[bold]{m.id}[/]  [dim]{m.model} · {m.project_path}[/]\n  {m.title or '(untitled)'}")
 
 
+@app.command(name="mcp")
+def mcp_command() -> None:
+    """Connect to every configured MCP server and list the tools they expose.
+
+    Doesn't start a session — this is for checking a server config is right
+    (command spelled correctly, URL reachable) before relying on it.
+    """
+    asyncio.run(_mcp_list())
+
+
+async def _mcp_list() -> None:
+    config = Config.load()
+    console = Console()
+    if not config.mcp_servers:
+        console.print(
+            r"[dim]No MCP servers configured. Add one under \[mcp_servers.<name>] in your config.[/]"
+        )
+        return
+    manager = MCPManager()
+    tools = await manager.connect_all(config.mcp_servers)
+    by_server: dict[str, list[str]] = {}
+    for t in tools:
+        by_server.setdefault(t.server_name, []).append(t.mcp_tool_name)  # type: ignore[attr-defined]
+    for s in config.mcp_servers:
+        if s.name in manager.connected_servers:
+            names = ", ".join(by_server.get(s.name, [])) or "(no tools)"
+            console.print(f"[bold]{s.name}[/]  [green]connected[/]  {names}")
+        else:
+            console.print(f"[bold]{s.name}[/]  [red]failed to connect[/]")
+    await manager.close()
+
+
 def _env_has_key(env_var: str | None) -> bool:
     import os
 
@@ -147,33 +207,45 @@ async def _interactive(model: str | None, cont: bool, resume: str | None) -> Non
     permissions = PermissionManager(ask_fn=ui.ask_permission, auto_approve=set(config.auto_approve_tools))
     agent_ctx = AgentContext(cwd=cwd, permissions=permissions, on_output=ConsoleOutputSink(ui.console))
     system_prompt = build_system_prompt(cwd, model_id)
-    loop = AgentLoop(config=config, tools=default_tools(), system_prompt=system_prompt, ctx=agent_ctx)
+
+    tools = default_tools(config, model_id, cwd)
+    mcp_manager = MCPManager()
+    if config.mcp_servers:
+        try:
+            tools += await mcp_manager.connect_all(config.mcp_servers)
+        except Exception as e:  # noqa: BLE001 — a broken MCP config shouldn't block the session
+            ui.error(f"MCP setup failed: {e}")
+
+    loop = AgentLoop(config=config, tools=tools, system_prompt=system_prompt, ctx=agent_ctx)
 
     ui.banner(model_id, str(cwd))
 
-    while True:
-        try:
-            user_text = ui.console.input("[bold]❯[/] ")
-        except (EOFError, KeyboardInterrupt):
-            ui.console.print()
-            break
-
-        if not user_text.strip():
-            continue
-        if user_text.startswith("/"):
-            if _handle_slash(user_text.strip(), ui, session):
+    try:
+        while True:
+            try:
+                user_text = ui.console.input("[bold]❯[/] ")
+            except (EOFError, KeyboardInterrupt):
+                ui.console.print()
                 break
-            continue
 
-        session.messages.append(Message.user(user_text))
-        await _drive_turn(loop, session, ui, model_id)
+            if not user_text.strip():
+                continue
+            if user_text.startswith("/"):
+                if _handle_slash(user_text.strip(), ui, session):
+                    break
+                continue
+
+            session.messages.append(Message.user(user_text))
+            await _drive_turn(loop, session, ui, model_id)
+            session.save()
+
         session.save()
-
-    session.save()
-    ui.info(f"Session saved: {session.meta.id}  (resume with `openterminal --resume {session.meta.id}`)")
-    # See the matching comment in _one_shot — lets provider HTTP clients
-    # finish draining their connection pool before the loop shuts down.
-    await asyncio.sleep(0.1)
+        ui.info(f"Session saved: {session.meta.id}  (resume with `openterminal --resume {session.meta.id}`)")
+    finally:
+        await mcp_manager.close()
+        # See the matching comment in _one_shot — lets provider HTTP clients
+        # finish draining their connection pool before the loop shuts down.
+        await asyncio.sleep(0.1)
 
 
 def _handle_slash(cmd: str, ui: TerminalUI, session: Session) -> bool:
@@ -230,23 +302,35 @@ async def _one_shot(prompt: str, model: str | None, auto_approve_all: bool) -> N
     permissions = PermissionManager(ask_fn=auto_yes if auto_approve_all else _deny_in_ci)
     ctx = AgentContext(cwd=cwd, permissions=permissions)
     system_prompt = build_system_prompt(cwd, model_id)
-    loop = AgentLoop(config=config, tools=default_tools(), system_prompt=system_prompt, ctx=ctx)
+
+    tools = default_tools(config, model_id, cwd)
+    mcp_manager = MCPManager()
+    console = Console()
+    if config.mcp_servers:
+        try:
+            tools += await mcp_manager.connect_all(config.mcp_servers)
+        except Exception as e:  # noqa: BLE001
+            console.print(f"[red]MCP setup failed: {e}[/]")
+
+    loop = AgentLoop(config=config, tools=tools, system_prompt=system_prompt, ctx=ctx)
 
     messages = [Message.user(prompt)]
-    console = Console()
     had_error = False
-    async for event in loop.run_turn(messages, model_id=model_id):
-        if isinstance(event, TextChunk):
-            console.print(event.text, end="")
-        elif isinstance(event, FatalError):
-            console.print(f"\n[red]{event.message}[/]")
-            had_error = True
-    console.print()
-    # Some provider SDKs' HTTP layers (httpcore2, as of this writing) don't
-    # fully drain their connection pool inside client.close() — without this,
-    # asyncio.run() tears the loop down before that finishes and the cleanup
-    # fails loudly (but harmlessly) during interpreter shutdown instead.
-    await asyncio.sleep(0.1)
+    try:
+        async for event in loop.run_turn(messages, model_id=model_id):
+            if isinstance(event, TextChunk):
+                console.print(event.text, end="", markup=False, highlight=False)
+            elif isinstance(event, FatalError):
+                console.print(f"\n[red]{event.message}[/]")
+                had_error = True
+        console.print()
+    finally:
+        await mcp_manager.close()
+        # Some provider SDKs' HTTP layers (httpcore2, as of this writing) don't
+        # fully drain their connection pool inside client.close() — without this,
+        # asyncio.run() tears the loop down before that finishes and the cleanup
+        # fails loudly (but harmlessly) during interpreter shutdown instead.
+        await asyncio.sleep(0.1)
     if had_error:
         raise typer.Exit(1)
 

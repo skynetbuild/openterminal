@@ -9,3 +9,8 @@ build/
 .ruff_cache/
 .env
 *.bak
+
+# The openterminal.org marketing site is a separate Next.js project, deployed
+# straight to Vercel (not git-connected) — kept out of the CLI's own repo on
+# purpose. Move it to its own repo whenever that's worth doing.
+site/

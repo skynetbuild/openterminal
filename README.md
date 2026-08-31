@@ -36,7 +36,7 @@ tools, same permission model, same sessions, whichever one is answering.
 ## Install
 
 ```bash
-pip install openterminal          # once published
+pip install openterminalai          # once published
 # or, from source:
 git clone https://github.com/skynetbuild/openterminal
 cd openterminal && pip install -e .
@@ -47,6 +47,7 @@ cd openterminal && pip install -e .
 ```bash
 openterminal auth anthropic        # paste your API key once, it's saved locally
 openterminal                       # interactive session in the current directory
+openterminal --tui                 # same session, full-screen Textual UI (beta)
 openterminal --continue            # resume the most recent session for this project
 openterminal run "explain this repo's structure"   # one-shot, prints and exits — good for scripts/CI
 ```
@@ -91,6 +92,34 @@ Drop an `OPENTERMINAL.md` in your repo root (or it'll fall back to an
 existing `AGENTS.md`/`CLAUDE.md`) and it's folded into every session's system
 prompt — conventions, commands, things not to touch.
 
+## MCP servers
+
+Any MCP server — stdio or streamable-HTTP — adds its tools to the session:
+
+```toml
+[mcp_servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allow"]
+
+[mcp_servers.remote]
+url = "https://example.com/mcp"
+```
+
+`openterminal mcp` connects to everything configured and lists what each
+server exposes, without starting a session — useful for checking a server's
+actually reachable before relying on it. Every MCP tool goes through the
+same permission gate as `write_file`/`bash`, since it's arbitrary code we
+didn't write.
+
+## Sub-agents
+
+The model has a `dispatch_agent` tool for delegating a self-contained,
+read-only investigation ("find every place X is parsed and summarize the
+formats") to a fresh sub-agent instead of burning the main conversation on
+dozens of intermediate searches. The sub-agent gets its own message history
+(no memory of your conversation), a read-only tool set (no writes, no bash,
+no nested sub-agents), and reports back one summary.
+
 ## Architecture
 
 ```
@@ -99,26 +128,36 @@ openterminal/
   providers/           one adapter per wire format, not per vendor —
                         anthropic, google are native; openai/xai/ollama/
                         lmstudio/vllm/custom all ride one OpenAI-compatible adapter
-  tools/                read_file, list_dir, glob, grep, write_file, edit_file, bash
+  tools/                read_file, list_dir, glob, grep, write_file, edit_file, bash,
+                          dispatch_agent (spawns a read-only sub-agent)
+  mcp_client.py          MCP servers -> Tool instances, same adapter idea as providers/
   agent/
     loop.py             the actual agent loop: stream -> tool calls -> results -> repeat
     permissions.py       the approval gate for anything that writes or executes
     session.py            durable, resumable conversations (JSON on disk)
     context.py             project system-prompt assembly (git state, OPENTERMINAL.md)
-  ui/                   Rich-based terminal rendering — a separate concern from
-                          the loop, which only emits structured events
+  ui/
+    console.py          Rich-based plain REPL (the default)
+    tui.py               Textual full-screen UI (`--tui`, beta) — same
+                          agent loop and events, just a different consumer
   cli.py               the `openterminal` / `ot` entry point (Typer)
 ```
 
 Adding a provider that isn't already OpenAI-compatible means writing one
 class implementing `Provider.stream()` — nothing else in the codebase needs
-to know it exists beyond a registry entry.
+to know it exists beyond a registry entry. Same idea for a UI: both
+`ui/console.py` and `ui/tui.py` are independent consumers of the same
+`AgentLoop.run_turn()` event stream — a third frontend (a web UI, say) would
+be a new file, not a fork of the agent logic.
 
 ## Status
 
 Early — the core loop, all five day-one providers, the permission system,
-and session persistence are real and working. No TUI yet (Rich-based REPL
-for now), no MCP support yet, no sub-agents yet.
+session persistence, a Textual TUI, MCP servers, and sub-agents are real and
+working (tested live against a real model: tool calls, the permission
+modal, an MCP round-trip, and a dispatch_agent delegation that came back
+with an accurate answer). Not yet: predefined sub-agent types (today there's
+one general-purpose read-only kind), nested sub-agents.
 
 ## License
 

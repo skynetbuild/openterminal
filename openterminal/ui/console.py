@@ -41,7 +41,11 @@ class TerminalUI:
     # ── streaming assistant text ────────────────────────────────────────
 
     def text_delta(self, text: str) -> None:
-        self.console.print(text, end="")
+        # markup=False: this is the model's own text, not one of our UI
+        # strings — code containing `[]` (a Python list type, a markdown
+        # link, `array[i]`) is common enough that treating it as Rich markup
+        # would silently mangle or crash on real output.
+        self.console.print(text, end="", markup=False)
         self._line_open = True
 
     def end_text(self) -> None:
@@ -109,4 +113,7 @@ class ConsoleOutputSink(OutputSink):
         self.console = console
 
     def write(self, text: str) -> None:
-        self.console.print(text, end="", style=DIM)
+        # Same reasoning as text_delta: this is a shell command's raw stdout,
+        # not a UI string — `ls` output, JSON, anything with `[`/`]` in it
+        # would otherwise be parsed as Rich markup.
+        self.console.print(text, end="", style=DIM, markup=False)
