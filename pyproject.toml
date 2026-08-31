@@ -1,0 +1,43 @@
+[project]
+name = "openterminal"
+version = "0.1.0"
+description = "OpenTerminal — a multi-provider, agentic coding CLI. By SkynetBuild."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "SkynetBuild" }]
+keywords = ["ai", "agent", "cli", "coding-assistant", "llm"]
+
+dependencies = [
+    "rich>=13.9.0",
+    "typer>=0.15.0",
+    "pydantic>=2.9.0",
+    "httpx>=0.27.0",
+    "tomli-w>=1.1.0",
+    "platformdirs>=4.3.0",
+    # Native SDKs for the providers with first-class adapters. xAI, Ollama, and
+    # any custom provider all speak the OpenAI-compatible chat/completions
+    # shape, so they ride the OpenAI SDK's client with a different base_url —
+    # no separate SDK needed for those.
+    "anthropic>=0.40.0",
+    "openai>=1.55.0",
+    "google-genai>=0.3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3.0", "pytest-asyncio>=0.24.0", "ruff>=0.7.0"]
+
+[project.scripts]
+openterminal = "openterminal.cli:app"
+ot = "openterminal.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["openterminal"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
