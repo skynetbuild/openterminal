@@ -39,6 +39,16 @@ _BUILTIN_OPENAI_COMPAT = {
         requires_api_key=False,
         env_var=None,
     ),
+    # Ollama Cloud is a *different* service from local Ollama — hosted, needs
+    # an API key, different host — not just "ollama with a base_url flag".
+    # It exposes the same OpenAI-compatible /v1 layer the local server does.
+    "ollama-cloud": ProviderInfo(
+        id="ollama-cloud",
+        display_name="Ollama Cloud",
+        default_model="gpt-oss:120b",
+        models=["gpt-oss:120b", "qwen3.5:397b", "kimi-k2.6", "deepseek-v4-flash", "glm-5.2"],
+        env_var="OLLAMA_API_KEY",
+    ),
     # LM Studio and vLLM both serve an OpenAI-compatible /v1 endpoint like
     # Ollama does, just on different default ports — same adapter, zero extra
     # code. (llama.cpp's `server` binary and SGLang do too, and slot in the
@@ -65,6 +75,7 @@ _BUILTIN_BASE_URLS = {
     "openai": "https://api.openai.com/v1",
     "xai": "https://api.x.ai/v1",
     "ollama": "http://localhost:11434/v1",
+    "ollama-cloud": "https://ollama.com/v1",
     "lmstudio": "http://localhost:1234/v1",
     "vllm": "http://localhost:8000/v1",
 }

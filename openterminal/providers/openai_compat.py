@@ -11,6 +11,7 @@ custom provider from config.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from collections.abc import AsyncIterator
@@ -116,7 +117,12 @@ class OpenAICompatProvider(Provider):
     ) -> AsyncIterator[StreamEvent]:
         # Client construction (where a missing API key raises) stays inside
         # the try along with everything else — see the note in
-        # anthropic_provider.py's stream() for why that matters.
+        # anthropic_provider.py's stream() for why that matters. `client`
+        # starts as None so the `finally` below can tell whether there's
+        # actually a connection to close (AsyncOpenAI opens an httpx client
+        # eagerly; leaving it open past this call is what surfaces as a
+        # "generator didn't stop" warning from httpcore during shutdown).
+        client = None
         try:
             client = self._client()
             kwargs: dict = dict(
@@ -142,32 +148,39 @@ class OpenAICompatProvider(Provider):
             usage = Usage()
 
             stream = await client.chat.completions.create(**kwargs)
-            async for chunk in stream:
-                if chunk.usage:
-                    usage = Usage(
-                        input_tokens=chunk.usage.prompt_tokens or 0,
-                        output_tokens=chunk.usage.completion_tokens or 0,
-                    )
-                if not chunk.choices:
-                    continue
-                choice = chunk.choices[0]
-                if choice.finish_reason:
-                    finish_reason = choice.finish_reason
-                delta = choice.delta
-                if delta.content:
-                    yield TextDelta(text=delta.content)
-                for tc in delta.tool_calls or []:
-                    idx = tc.index
-                    if tc.id:
-                        id_by_index[idx] = tc.id
-                    if tc.function and tc.function.name:
-                        name_by_index[idx] = tc.function.name
-                    tid = id_by_index.get(idx, f"call_{idx}")
-                    if idx not in started and idx in name_by_index:
-                        started.add(idx)
-                        yield ToolCallStart(id=tid, name=name_by_index[idx])
-                    if tc.function and tc.function.arguments:
-                        yield ToolCallDelta(id=tid, arguments_delta=tc.function.arguments)
+            try:
+                async for chunk in stream:
+                    if chunk.usage:
+                        usage = Usage(
+                            input_tokens=chunk.usage.prompt_tokens or 0,
+                            output_tokens=chunk.usage.completion_tokens or 0,
+                        )
+                    if not chunk.choices:
+                        continue
+                    choice = chunk.choices[0]
+                    if choice.finish_reason:
+                        finish_reason = choice.finish_reason
+                    delta = choice.delta
+                    if delta.content:
+                        yield TextDelta(text=delta.content)
+                    for tc in delta.tool_calls or []:
+                        idx = tc.index
+                        if tc.id:
+                            id_by_index[idx] = tc.id
+                        if tc.function and tc.function.name:
+                            name_by_index[idx] = tc.function.name
+                        tid = id_by_index.get(idx, f"call_{idx}")
+                        if idx not in started and idx in name_by_index:
+                            started.add(idx)
+                            yield ToolCallStart(id=tid, name=name_by_index[idx])
+                        if tc.function and tc.function.arguments:
+                            yield ToolCallDelta(id=tid, arguments_delta=tc.function.arguments)
+            finally:
+                # Closing the client alone isn't enough — the stream response
+                # itself holds the open httpcore2 byte-stream generator that
+                # otherwise gets torn down (noisily) at interpreter shutdown
+                # instead of cleanly here, inside a still-running loop.
+                await stream.close()
 
             for idx in started:
                 yield ToolCallEnd(id=id_by_index.get(idx, f"call_{idx}"))
@@ -176,6 +189,15 @@ class OpenAICompatProvider(Provider):
             yield TurnEnd(stop_reason=reason, usage=usage)  # type: ignore[arg-type]
         except Exception as e:  # noqa: BLE001
             yield StreamError(message=str(e), retryable=_looks_retryable(e))
+        finally:
+            if client is not None:
+                await client.close()
+                # httpx's connection-pool cleanup is itself async and doesn't
+                # always finish within close() — giving the loop one more
+                # tick lets it drain before asyncio.run() tears the loop down,
+                # instead of it failing later during interpreter shutdown
+                # with no loop left to run in.
+                await asyncio.sleep(0)
 
 
 def _looks_retryable(e: Exception) -> bool:

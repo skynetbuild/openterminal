@@ -99,6 +99,7 @@ class GoogleProvider(Provider):
     ) -> AsyncIterator[StreamEvent]:
         from google.genai import types
 
+        client = None
         try:
             client = self._client()
             config = types.GenerateContentConfig(
@@ -143,6 +144,12 @@ class GoogleProvider(Provider):
             yield TurnEnd(stop_reason="tool_use" if saw_tool_call else "end_turn", usage=usage)
         except Exception as e:  # noqa: BLE001
             yield StreamError(message=str(e), retryable=_looks_retryable(e))
+        finally:
+            # The google-genai SDK doesn't always expose a close() — guard
+            # rather than assume, so this never masks the real error above.
+            aclose = getattr(client, "aclose", None) or getattr(getattr(client, "_api_client", None), "aclose", None)
+            if callable(aclose):
+                await aclose()
 
 
 def _looks_retryable(e: Exception) -> bool:

@@ -95,7 +95,9 @@ class AnthropicProvider(Provider):
         # missing API key raises — stays inside the try. A ProviderError (or
         # anything else) that escapes uncaught would crash the whole process
         # instead of becoming a StreamError the agent loop can react to (and,
-        # with a fallback model configured, recover from).
+        # with a fallback model configured, recover from). `client` starts as
+        # None so `finally` knows whether there's a connection to close.
+        client = None
         try:
             client = self._client()
             kwargs: dict = dict(
@@ -148,6 +150,9 @@ class AnthropicProvider(Provider):
                 )
         except Exception as e:  # noqa: BLE001 — surfaced to the agent loop as a stream event
             yield StreamError(message=str(e), retryable=_looks_retryable(e))
+        finally:
+            if client is not None:
+                await client.close()
 
 
 def _looks_retryable(e: Exception) -> bool:

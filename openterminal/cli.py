@@ -12,10 +12,25 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from pathlib import Path
 
 import typer
 from rich.console import Console
+
+# Windows only, and only when stdout/stderr aren't already UTF-8: without
+# this, piping/redirecting output (`openterminal run ... > out.txt`, running
+# under an older cmd.exe, CI) makes Rich fall back to a legacy console writer
+# that encodes as cp1252 — which can't represent the box-drawing/status glyphs
+# used throughout the UI (❯, ⏺, ✓, ✗, ⚠) and crashes with UnicodeEncodeError.
+# A real modern terminal (Windows Terminal, PowerShell 7) doesn't need this,
+# but forcing it is harmless there too.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass
 
 from openterminal.agent.context import AgentContext, build_system_prompt
 from openterminal.agent.loop import (
@@ -156,6 +171,9 @@ async def _interactive(model: str | None, cont: bool, resume: str | None) -> Non
 
     session.save()
     ui.info(f"Session saved: {session.meta.id}  (resume with `openterminal --resume {session.meta.id}`)")
+    # See the matching comment in _one_shot — lets provider HTTP clients
+    # finish draining their connection pool before the loop shuts down.
+    await asyncio.sleep(0.1)
 
 
 def _handle_slash(cmd: str, ui: TerminalUI, session: Session) -> bool:
@@ -224,6 +242,11 @@ async def _one_shot(prompt: str, model: str | None, auto_approve_all: bool) -> N
             console.print(f"\n[red]{event.message}[/]")
             had_error = True
     console.print()
+    # Some provider SDKs' HTTP layers (httpcore2, as of this writing) don't
+    # fully drain their connection pool inside client.close() — without this,
+    # asyncio.run() tears the loop down before that finishes and the cleanup
+    # fails loudly (but harmlessly) during interpreter shutdown instead.
+    await asyncio.sleep(0.1)
     if had_error:
         raise typer.Exit(1)
 
