@@ -4,7 +4,7 @@
 # commands (openterminal, ot) below are unaffected: PyPI distribution name
 # and import/command names are independent of each other.
 name = "openterminalai"
-version = "0.1.0"
+version = "1.0.0"
 description = "OpenTerminal — a multi-provider, agentic coding CLI. By SkynetBuild."
 readme = "README.md"
 requires-python = ">=3.11"
