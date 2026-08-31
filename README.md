@@ -1,10 +1,10 @@
 # OpenTerminal
 
-A real, multi-provider agentic coding CLI. By **SkynetBuild** — [skynet.build](https://skynet.build) · [openterminal.org](https://openterminal.org)
+[![CI](https://github.com/skynetbuild/openterminal/actions/workflows/ci.yml/badge.svg)](https://github.com/skynetbuild/openterminal/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 
-Run it in a project, talk to it in plain language, and it reads/searches/edits
-files and runs shell commands to get things done — with your choice of model
-behind it, not just one vendor.
+A multi-provider agentic coding CLI. By [SkynetBuild](https://skynet.build).
 
 ```bash
 ❯ openterminal
@@ -26,138 +26,103 @@ Type your request, or /help for commands. Ctrl+C to interrupt, /exit to quit.
 ...
 ```
 
-## Why this exists
-
-Every agentic coding CLI today locks you into one model vendor. OpenTerminal
-doesn't: Anthropic, OpenAI, Google Gemini, xAI Grok, local models (Ollama,
-LM Studio, vLLM), or **any OpenAI-compatible endpoint you point it at** — same
-tools, same permission model, same sessions, whichever one is answering.
-
 ## Install
 
 ```bash
-pip install openterminalai          # once published
-# or, from source:
-git clone https://github.com/skynetbuild/openterminal
-cd openterminal && pip install -e .
+pip install openterminalai
 ```
 
-## Quick start
-
 ```bash
-openterminal auth anthropic        # paste your API key once, it's saved locally
-openterminal                       # interactive session in the current directory
-openterminal --tui                 # same session, full-screen Textual UI (beta)
-openterminal --continue            # resume the most recent session for this project
-openterminal run "explain this repo's structure"   # one-shot, prints and exits — good for scripts/CI
+openterminal auth anthropic   # or: export ANTHROPIC_API_KEY=...
+openterminal                  # in any project directory
 ```
 
-Switch models per-run or set a default:
+## Usage
 
 ```bash
+openterminal                     # interactive session
+openterminal --tui               # same, full-screen Textual UI (beta)
+openterminal --continue          # resume the last session for this project
+openterminal --resume <id>       # resume a specific one
+openterminal run "prompt"        # one-shot, prints and exits — scripting/CI
 openterminal --model openai/gpt-5.2
-openterminal --model ollama/qwen2.5-coder:32b      # fully local, no API key
+openterminal --model ollama/qwen2.5-coder:32b   # local, no API key
 ```
 
-## Add your own provider
+Model IDs are `provider/model`. Providers: `anthropic`, `openai`, `google`,
+`xai`, `ollama`, `ollama-cloud`, `lmstudio`, `vllm`, or anything OpenAI-compatible
+you add yourself (see below). `openterminal providers` lists what's configured.
 
-Anything that speaks the OpenAI-compatible `/v1/chat/completions` API works —
-add it to `~/.config/openterminal/config.toml` (or the platform equivalent):
+## Config
 
-```toml
-[custom_providers.myprovider]
-display_name = "My Provider"
-base_url = "https://api.myprovider.com/v1"
-api_key = "..."
-default_model = "my-model"
-models = ["my-model", "my-model-mini"]
-```
-
-Then: `openterminal --model myprovider/my-model`.
-
-## Fallback between models
+`~/.config/openterminal/config.toml` (platform equivalent elsewhere), overridable
+per-project in `.openterminal/config.toml`:
 
 ```toml
 model = "anthropic/claude-sonnet-4-5"
 fallback_models = ["openai/gpt-5.2", "ollama/qwen2.5-coder:32b"]
-```
 
-If the primary model errors out before producing any output (bad key, an
-outage, a rate limit), OpenTerminal tries the next one automatically and
-tells you it did.
+[providers.anthropic]
+api_key = "sk-ant-..."
 
-## Project instructions
+[custom_providers.myprovider]
+display_name = "My Provider"
+base_url = "https://api.myprovider.com/v1"
+default_model = "my-model"
 
-Drop an `OPENTERMINAL.md` in your repo root (or it'll fall back to an
-existing `AGENTS.md`/`CLAUDE.md`) and it's folded into every session's system
-prompt — conventions, commands, things not to touch.
-
-## MCP servers
-
-Any MCP server — stdio or streamable-HTTP — adds its tools to the session:
-
-```toml
 [mcp_servers.filesystem]
 command = "npx"
-args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allow"]
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/path"]
 
 [mcp_servers.remote]
 url = "https://example.com/mcp"
 ```
 
-`openterminal mcp` connects to everything configured and lists what each
-server exposes, without starting a session — useful for checking a server's
-actually reachable before relying on it. Every MCP tool goes through the
-same permission gate as `write_file`/`bash`, since it's arbitrary code we
-didn't write.
+- **`fallback_models`** — tried in order if the primary errors out before answering.
+- **`custom_providers`** — any OpenAI-compatible `/v1/chat/completions` endpoint.
+  `openterminal --model myprovider/my-model`.
+- **`mcp_servers`** — stdio or streamable-HTTP. Tools show up namespaced
+  `mcp__server__tool`, gated by the same permission prompt as `write_file`/`bash`.
+  `openterminal mcp` checks a config without starting a session.
+- **`OPENTERMINAL.md`** (or `AGENTS.md`/`CLAUDE.md`) in a repo root — folded
+  into the system prompt if present.
 
-## Sub-agents
-
-The model has a `dispatch_agent` tool for delegating a self-contained,
-read-only investigation ("find every place X is parsed and summarize the
-formats") to a fresh sub-agent instead of burning the main conversation on
-dozens of intermediate searches. The sub-agent gets its own message history
-(no memory of your conversation), a read-only tool set (no writes, no bash,
-no nested sub-agents), and reports back one summary.
+`dispatch_agent` is a built-in tool the model can call to delegate a
+self-contained, read-only investigation to a fresh sub-agent (own message
+history, no writes/bash, no nesting) instead of spending the main
+conversation on intermediate searches.
 
 ## Architecture
 
 ```
 openterminal/
   types.py            provider-agnostic Message/ToolCall/StreamEvent shapes
-  providers/           one adapter per wire format, not per vendor —
-                        anthropic, google are native; openai/xai/ollama/
-                        lmstudio/vllm/custom all ride one OpenAI-compatible adapter
-  tools/                read_file, list_dir, glob, grep, write_file, edit_file, bash,
-                          dispatch_agent (spawns a read-only sub-agent)
-  mcp_client.py          MCP servers -> Tool instances, same adapter idea as providers/
+  providers/           anthropic and google are native adapters; openai/xai/
+                        ollama/lmstudio/vllm/custom ride one OpenAI-compatible adapter
+  tools/                read_file, list_dir, glob, grep, write_file, edit_file,
+                        bash, dispatch_agent
+  mcp_client.py          MCP servers -> Tool instances
   agent/
-    loop.py             the actual agent loop: stream -> tool calls -> results -> repeat
-    permissions.py       the approval gate for anything that writes or executes
-    session.py            durable, resumable conversations (JSON on disk)
-    context.py             project system-prompt assembly (git state, OPENTERMINAL.md)
+    loop.py             stream -> tool calls -> results -> repeat
+    permissions.py       approval gate for writes/bash/MCP tools
+    session.py            JSON-backed, resumable
+    context.py             system-prompt assembly (git state, OPENTERMINAL.md)
   ui/
-    console.py          Rich-based plain REPL (the default)
-    tui.py               Textual full-screen UI (`--tui`, beta) — same
-                          agent loop and events, just a different consumer
-  cli.py               the `openterminal` / `ot` entry point (Typer)
+    console.py          Rich REPL (default)
+    tui.py               Textual UI (--tui) — same AgentLoop, different consumer
+  cli.py               entry point (Typer)
 ```
 
-Adding a provider that isn't already OpenAI-compatible means writing one
-class implementing `Provider.stream()` — nothing else in the codebase needs
-to know it exists beyond a registry entry. Same idea for a UI: both
-`ui/console.py` and `ui/tui.py` are independent consumers of the same
-`AgentLoop.run_turn()` event stream — a third frontend (a web UI, say) would
-be a new file, not a fork of the agent logic.
+Adding a provider that isn't OpenAI-compatible means implementing
+`Provider.stream()`; nothing else needs to know it exists beyond a registry
+entry. Same for a UI — `console.py` and `tui.py` both just consume
+`AgentLoop.run_turn()`'s event stream.
 
 ## Status
 
-Early — the core loop, all five day-one providers, the permission system,
-session persistence, a Textual TUI, MCP servers, and sub-agents are real and
-working (tested live against a real model: tool calls, the permission
-modal, an MCP round-trip, and a dispatch_agent delegation that came back
-with an accurate answer). Not yet: predefined sub-agent types (today there's
-one general-purpose read-only kind), nested sub-agents.
+Pre-1.0. Core loop, five providers, permissions, sessions, the TUI, MCP, and
+sub-agents are implemented. Not yet: predefined sub-agent types, nested
+sub-agents, Windows/Linux binary distribution.
 
 ## License
 
