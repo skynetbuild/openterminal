@@ -23,7 +23,7 @@ class AgentContext:
     permissions: PermissionManager
     # Populated by the UI layer so tools that stream output (bash) can push
     # it live instead of buffering silently until they return.
-    on_output: "OutputSink | None" = None
+    on_output: OutputSink | None = None
 
 
 class OutputSink:

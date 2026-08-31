@@ -75,7 +75,7 @@ class BashTool(Tool):
         try:
             await asyncio.wait_for(pump(), timeout=timeout)
             code = await asyncio.wait_for(proc.wait(), timeout=5)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.wait()
             output = "".join(chunks)

@@ -10,13 +10,14 @@ forking the agent logic.
 
 from __future__ import annotations
 
-from openterminal.agent.context import OutputSink
-from openterminal.agent.permissions import Decision
 from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.syntax import Syntax
+
+from openterminal.agent.context import OutputSink
+from openterminal.agent.permissions import Decision
 
 ACCENT = "bright_cyan"
 DIM = "grey58"

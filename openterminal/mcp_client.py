@@ -40,7 +40,7 @@ class MCPTool(Tool):
 
     dangerous = True
 
-    def __init__(self, server_name: str, mcp_tool: Any, manager: "MCPManager") -> None:
+    def __init__(self, server_name: str, mcp_tool: Any, manager: MCPManager) -> None:
         self.server_name = server_name
         self.mcp_tool_name = mcp_tool.name
         self.name = f"mcp__{server_name}__{mcp_tool.name}"

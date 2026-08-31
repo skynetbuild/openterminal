@@ -53,7 +53,7 @@ class Session:
     messages: list[Message] = field(default_factory=list)
 
     @classmethod
-    def create(cls, project_path: Path, model: str) -> "Session":
+    def create(cls, project_path: Path, model: str) -> Session:
         now = time.time()
         return cls(
             meta=SessionMeta(
@@ -81,7 +81,7 @@ class Session:
         self.path().write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     @classmethod
-    def load(cls, session_id: str) -> "Session":
+    def load(cls, session_id: str) -> Session:
         path = sessions_dir() / f"{session_id}.json"
         data = json.loads(path.read_text(encoding="utf-8"))
         return cls(
@@ -90,7 +90,7 @@ class Session:
         )
 
     @staticmethod
-    def latest_for_project(project_path: Path) -> "Session | None":
+    def latest_for_project(project_path: Path) -> Session | None:
         candidates = []
         for p in sessions_dir().glob("*.json"):
             try:

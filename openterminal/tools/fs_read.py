@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from openterminal.agent.context import AgentContext
@@ -64,7 +63,9 @@ class ListDirTool(Tool):
     description = "List the immediate contents of a directory in the project (not recursive — use glob for that)."
     parameters = {
         "type": "object",
-        "properties": {"path": {"type": "string", "description": "Directory, relative to the project root. Use \".\" for the root."}},
+        "properties": {
+            "path": {"type": "string", "description": 'Directory, relative to the project root. Use "." for the root.'},
+        },
         "required": ["path"],
     }
 

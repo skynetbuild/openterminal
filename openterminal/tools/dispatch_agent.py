@@ -68,7 +68,7 @@ class DispatchAgentTool(Tool):
     }
     dangerous = False  # nothing this tool does *directly* touches disk — the sub-agent's own tools are all read-only
 
-    def __init__(self, config: "Config", model_id: str, cwd: Path) -> None:
+    def __init__(self, config: Config, model_id: str, cwd: Path) -> None:
         self.config = config
         self.model_id = model_id
         self.cwd = cwd

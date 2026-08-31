@@ -32,8 +32,8 @@ for _stream in (sys.stdout, sys.stderr):
         except (ValueError, OSError):
             pass
 
-from openterminal.agent.context import AgentContext, build_system_prompt
-from openterminal.agent.loop import (
+from openterminal.agent.context import AgentContext, build_system_prompt  # noqa: E402
+from openterminal.agent.loop import (  # noqa: E402
     AgentLoop,
     FatalError,
     ModelSwitched,
@@ -42,14 +42,14 @@ from openterminal.agent.loop import (
     ToolCallStarted,
     TurnComplete,
 )
-from openterminal.agent.permissions import PermissionManager
-from openterminal.agent.session import Session
-from openterminal.config import Config, split_model_id
-from openterminal.mcp_client import MCPManager
-from openterminal.providers.registry import list_providers
-from openterminal.tools.registry import default_tools
-from openterminal.types import Message
-from openterminal.ui.console import ConsoleOutputSink, TerminalUI
+from openterminal.agent.permissions import PermissionManager  # noqa: E402
+from openterminal.agent.session import Session  # noqa: E402
+from openterminal.config import Config  # noqa: E402
+from openterminal.mcp_client import MCPManager  # noqa: E402
+from openterminal.providers.registry import list_providers  # noqa: E402
+from openterminal.tools.registry import default_tools  # noqa: E402
+from openterminal.types import Message  # noqa: E402
+from openterminal.ui.console import ConsoleOutputSink, TerminalUI  # noqa: E402
 
 app = typer.Typer(add_completion=False, no_args_is_help=False, invoke_without_command=True)
 
@@ -271,13 +271,14 @@ async def _drive_turn(loop: AgentLoop, session: Session, ui: TerminalUI, model_i
     ui.end_text()
 
 
-def _render_event(event, ui: TerminalUI) -> None:  # noqa: ANN001 — AgentEvent union, kept loose here
+def _render_event(event, ui: TerminalUI) -> None:
     if isinstance(event, TextChunk):
         ui.text_delta(event.text)
     elif isinstance(event, ToolCallStarted):
         ui.tool_started(event.summary)
     elif isinstance(event, ToolCallFinished):
-        ui.tool_finished(event.result.content.splitlines()[0] if event.result.content else event.name, event.result.is_error, event.result.display)
+        headline = event.result.content.splitlines()[0] if event.result.content else event.name
+        ui.tool_finished(headline, event.result.is_error, event.result.display)
     elif isinstance(event, ModelSwitched):
         ui.model_switched(event.from_model, event.to_model, event.reason)
     elif isinstance(event, FatalError):

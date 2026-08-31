@@ -185,7 +185,11 @@ class OpenAICompatProvider(Provider):
             for idx in started:
                 yield ToolCallEnd(id=id_by_index.get(idx, f"call_{idx}"))
 
-            reason = "tool_use" if finish_reason == "tool_calls" else "max_tokens" if finish_reason == "length" else "end_turn"
+            reason = (
+                "tool_use" if finish_reason == "tool_calls"
+                else "max_tokens" if finish_reason == "length"
+                else "end_turn"
+            )
             yield TurnEnd(stop_reason=reason, usage=usage)  # type: ignore[arg-type]
         except Exception as e:  # noqa: BLE001
             yield StreamError(message=str(e), retryable=_looks_retryable(e))

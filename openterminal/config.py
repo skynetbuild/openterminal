@@ -93,7 +93,7 @@ class Config:
         return split_model_id(self.model)[1]
 
     @classmethod
-    def load(cls, cwd: Path | None = None) -> "Config":
+    def load(cls, cwd: Path | None = None) -> Config:
         merged: dict[str, Any] = {}
         for path in (user_config_path(), project_config_path(cwd)):
             if path.exists():

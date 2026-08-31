@@ -76,15 +76,15 @@ class Message:
     created_at: float = field(default_factory=time.time)
 
     @staticmethod
-    def user(text: str) -> "Message":
+    def user(text: str) -> Message:
         return Message(role=Role.USER, content=[TextBlock(text)])
 
     @staticmethod
-    def assistant(blocks: list[ContentBlock]) -> "Message":
+    def assistant(blocks: list[ContentBlock]) -> Message:
         return Message(role=Role.ASSISTANT, content=blocks)
 
     @staticmethod
-    def tool_results(results: list[ToolResultBlock]) -> "Message":
+    def tool_results(results: list[ToolResultBlock]) -> Message:
         # Tool results travel back as a user-role turn — every provider
         # expects them addressed to it that way, not as their own role.
         return Message(role=Role.USER, content=list(results))

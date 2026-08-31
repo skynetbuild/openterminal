@@ -110,7 +110,7 @@ class AgentLoop:
         """
         candidates = [model_id or self.config.model, *self.config.fallback_models]
 
-        for round_num in range(1, MAX_TOOL_ROUNDS + 1):
+        for _round_num in range(1, MAX_TOOL_ROUNDS + 1):
             assistant_blocks: list = []
             stop_reason = "end_turn"
             error: str | None = None
@@ -162,7 +162,7 @@ class AgentLoop:
 
     async def _stream_one_turn(
         self, messages: list[Message], candidates: list[str]
-    ) -> AsyncIterator["AgentEvent | _TurnResult"]:
+    ) -> AsyncIterator[AgentEvent | _TurnResult]:
         """Runs the provider stream for the first candidate model that
         doesn't fail immediately. Yields TextChunk as text arrives (live),
         a ModelSwitched notice if a fallback kicks in, and ends with exactly
@@ -188,6 +188,7 @@ class AgentLoop:
             tool_order: list[str] = []
             produced_any_output = False
             stream_error: str | None = None
+            stream_error_retryable = False
             stop_reason = "end_turn"
 
             async for event in provider.stream(
@@ -213,15 +214,22 @@ class AgentLoop:
                     stop_reason = event.stop_reason
                 elif isinstance(event, StreamError):
                     stream_error = event.message
+                    stream_error_retryable = event.retryable
                     if not produced_any_output and event.retryable and i + 1 < len(candidates):
                         break  # try the next candidate below
                     last_error = event.message
 
-            if stream_error and (produced_any_output or i + 1 >= len(candidates)):
+            # Fall back only for the same reason the inner loop's early `break`
+            # does: retryable, nothing shown yet, and another candidate left to
+            # try. Anything else (a non-retryable error like a bad key, or a
+            # retryable one that still produced partial output) is final —
+            # switching models mid-answer, or retrying an error that isn't
+            # transient, isn't the fallback's job.
+            can_fall_back = stream_error_retryable and not produced_any_output and i + 1 < len(candidates)
+            if stream_error and not can_fall_back:
                 yield _TurnResult(blocks=blocks, stop_reason="error", error=stream_error)
                 return
             if stream_error:
-                # Retryable + nothing shown yet + more candidates left: try the next one.
                 continue
 
             if text_buf:
